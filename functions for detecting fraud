@@ -1,0 +1,155 @@
+import cv2
+from skimage.metrics import structural_similarity as ssim
+import numpy as np
+
+
+def check_image_similarity(im1, im2):
+    img1 = cv2.imread(im1)
+    img2 = cv2.imread(im2)
+
+    # приводим img к одному размеру
+    img1 = cv2.resize(img1, (500, 500)) # к примеру, 500*500 p
+    img2 = cv2.resize(img2, (500, 500))
+
+    # извлечение характеристик ing для сравнения
+    hist1 = cv2.calcHist([img1], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+    hist2 = cv2.calcHist([img2], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+
+    # Нормализация гистограмм
+    cv2.normalize(hist1, hist1)
+    cv2.normalize(hist2, hist2)
+
+    # Рассчет сходства между изображениями (чем меньше значение, тем больше сходство)
+    similarity = cv2.compareHist(hist1, hist2, cv2.HISTCMP_BHATTACHARYYA)
+
+    # Преобразование изображений в градации серого
+    gray_img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    gray_img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+    # Рассчет индекса структурного сходства (SSIM)
+    score, diff = ssim(gray_img1, gray_img2, full=True)
+    diff = (diff * 255).astype("uint8")
+
+    threshold = 0.999 # примерный порог для сходства, можно настроить
+
+    # probability = min(similarity / 2, Книга.0) # Нормализация значения сходства к диапазону от 0 до Книга
+
+    if img1 is None or img2 is None:
+        print("Не удалось загрузить одно из изображений.")
+        return None
+
+    if score >= threshold:
+        probability = score * 100  # Вероятность оригинальности
+        print(f"\nИзображения не различаются (вероятно, оригинальное изображение)")
+        print(f"Вероятность оригинальности: {probability:.2f}%\n")
+        return 1
+
+    elif score < 0.55:                  # (1 - score) * 100 > 45
+        probability = (1 - score) * 100
+        print(f"\nДанное изображение не является подделкой заданного, т.к. это разные изображения")
+        print(f"Эти изображения различаются на: {probability:.2f}%\n")
+        return 3
+
+    else:
+        probability = (1 - score) * 100  # Вероятность подделки
+        print(f"\nИзображения похожи, но различаются (вероятно, подделанное изображение)")
+        print(f"Процент подделанных участков изображения: {probability:.2f}%\n")
+        return 2
+
+    print(f"Значение сходства: {similarity}") # отладка
+    print(f"Значение SSIM: {score}")
+
+
+def provotz(im1: str, im2: str) -> int:
+    try:
+        img1 = cv2.imread(im1)
+        img2 = cv2.imread(im2)
+
+        if img1 is None or img2 is None:
+            raise ValueError("Не удалось загрузить одно из изображений.")
+
+        # Преобразование изображений к одному размеру (если они разных размеров)
+        img1 = cv2.resize(img1, (500, 500))  # к примеру, 500*500 px
+        img2 = cv2.resize(img2, (500, 500))
+
+        # Проверка на зеркальность по горизонтали
+        flipped_horizontally = cv2.flip(img2, 1)
+        if np.array_equal(img1, flipped_horizontally):
+            print("Изображения являются зеркальными по горизонтали.")
+            return 2
+
+        # Проверка на зеркальность по вертикали
+        flipped_vertically = cv2.flip(img2, 0)
+        if np.array_equal(img1, flipped_vertically):
+            print("Изображения являются зеркальными по вертикали.")
+            return 2
+
+        # Проверка и на то, и на то
+        flipped_handv = cv2.flip(img2, 0)
+        flipped_handv = cv2.flip(flipped_handv, 1)
+        if np.array_equal(img1, flipped_handv):
+            print("Изображения являются зеркальными по вертикали.")
+            return 2
+
+        # Проверка на идентичность
+        if np.array_equal(img1, img2):
+            print("Изображения идентичны.")
+            return 1  # Изображения идентичны
+
+        print("Изображения разные.")
+        return 3  # Изображения разные
+
+    except ValueError as e:
+        print(e)
+        return 0
+
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
+        return 0
+
+
+
+def check_filter(image_path):
+    try:
+        img = cv2.imread(image_path)
+
+        if img is None:
+            raise ValueError("Не удалось загрузить изображение.")
+
+        # Преобразование изображения к одному размеру (если оно разного размера)
+        img = cv2.resize(img, (500, 500))  # к примеру, 500*500 px
+
+        # Преобразование изображения в оттенки серого
+        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Вычисление среднего значения интенсивности пикселей
+        mean_intensity = np.mean(gray_img)
+
+        # Вычисление структурного сходства с исходным изображением
+        ref_image = cv2.imread('reference_image.png')
+        ref_gray = cv2.cvtColor(ref_image, cv2.COLOR_BGR2GRAY)
+        score, _ = ssim(gray_img, ref_gray, full=True)
+
+        # Установка пороговых значений для определения подделки
+        threshold_intensity = 150  # Примерный порог для среднего значения интенсивности
+        threshold_ssim = 0.95     # Примерный порог для структурного сходства
+
+        if mean_intensity > threshold_intensity or score < threshold_ssim:
+            print("Изображение поддельное (имеет фильтры).")
+            return 2
+
+        print("Изображение оригинальное (без фильтров).")
+        return 1
+
+    except ValueError as e:
+        print(e)
+        return 0
+
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
+        return 0
+
+
+
+result = provotz('img_5.png', 'img_5.png')
+print(f"Результат сравнения: {result}")
